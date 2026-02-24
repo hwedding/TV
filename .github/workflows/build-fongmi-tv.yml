@@ -1,4 +1,4 @@
-name: Fix - FongMi TV with hwedding Source
+name: Final Fix - FongMi TV with hwedding Source
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
           ref: release
           path: TV
 
-      # 第一步：安装Python 3.10（使用deadsnakes PPA，避免pip问题）
+      # 第一步：安装Python 3.10
       - name: Install Python 3.10
         run: |
           sudo add-apt-repository ppa:deadsnakes/ppa -y
@@ -30,17 +30,17 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 第二步：修改源码 - 修复语法错误并添加默认配置
-      - name: Fix App.java and inject config
+      # 第二步：修改源码 - 只改App.java，不改VodConfig.java
+      - name: Fix App.java only
         run: |
           cd TV
           
           # 备份原文件
           cp app/src/main/java/com/fongmi/android/tv/App.java app/src/main/java/com/fongmi/android/tv/App.java.bak
           
-          echo "=== 修改 App.java 添加默认配置（修复语法错误）==="
+          echo "=== 修改 App.java 添加默认配置 ==="
           
-          # 使用cat命令直接写入修改后的内容（最可靠的方式）
+          # 直接写入修改后的内容
           cat > app/src/main/java/com/fongmi/android/tv/App.java << 'EOF'
           package com.fongmi.android.tv;
 
@@ -50,6 +50,7 @@ jobs:
 
           import com.fongmi.android.tv.utils.Notify;
           import com.fongmi.android.tv.utils.Pref;
+          import com.fongmi.android.tv.utils.UrlUtil;
 
           public class App extends Application {
 
@@ -65,38 +66,34 @@ jobs:
                   instance = this;
                   
                   // 设置默认配置地址
-                  SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
-                  String configUrl = sp.getString("config_url", "");
-                  if (configUrl.isEmpty()) {
-                      sp.edit().putString("config_url", "http://tv.hwedding.cn/zhou.json").apply();
-                  }
-                  
-                  String vodUrl = sp.getString("vod_url", "");
-                  if (vodUrl.isEmpty()) {
-                      sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();
+                  try {
+                      SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
+                      String configUrl = sp.getString("config_url", "");
+                      if (configUrl == null || configUrl.isEmpty()) {
+                          sp.edit().putString("config_url", "http://tv.hwedding.cn/zhou.json").apply();
+                      }
+                      
+                      String vodUrl = sp.getString("vod_url", "");
+                      if (vodUrl == null || vodUrl.isEmpty()) {
+                          sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
                   }
                   
                   // 原有的其他初始化代码
                   Notify.init(this);
                   Pref.init(this);
+                  UrlUtil.init(this);
               }
           }
           EOF
           
-          echo "=== 修改完成，显示修改后的App.java内容 ==="
-          cat app/src/main/java/com/fongmi/android/tv/App.java
-          
-          # 同时修改VodConfig.java（备用方案）
-          echo "=== 修改 VodConfig.java ==="
-          if [ -f app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java ]; then
-            cp app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java.bak
-            sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn/zhou.json";#g' app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
-            echo "VodConfig.java修改后的内容："
-            grep -n "getVodUrl" app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
-          fi
+          echo "=== App.java 修改完成 ==="
+          head -30 app/src/main/java/com/fongmi/android/tv/App.java
 
       # 第三步：修改build.gradle配置Python 3.10
-      - name: Configure gradle for Python 3.10
+      - name: Configure gradle
         run: |
           cd TV
           
@@ -105,15 +102,24 @@ jobs:
           
           # 添加Python版本配置
           if grep -q "chaquopy" app/build.gradle; then
-            sed -i '/chaquopy {/a \        pythonVersion "3.10"' app/build.gradle
+            # 如果已存在，修改版本号
+            sed -i 's/pythonVersion ".*"/pythonVersion "3.10"/g' app/build.gradle
           else
-            echo "未找到chaquopy配置，手动添加"
+            # 如果不存在，在android块前添加
             sed -i '/android {/i chaquopy {\n    pythonVersion "3.10"\n}\n' app/build.gradle
           fi
           
           echo "build.gradle修改完成"
+          grep -A2 -B2 "chaquopy" app/build.gradle || echo "chaquopy配置未找到"
 
-      # 第四步：编译APK
+      # 第四步：创建local.properties
+      - name: Create local.properties
+        run: |
+          cd TV
+          echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
+          echo "python.executable=/usr/bin/python3.10" >> local.properties
+
+      # 第五步：编译APK
       - name: Build APK
         run: |
           cd TV
@@ -122,24 +128,38 @@ jobs:
           ./gradlew assembleDebug
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
+          ANDROID_HOME: /usr/local/lib/android/sdk
 
-      # 第五步：查找并上传APK
-      - name: Upload APK
+      # 第六步：查找APK
+      - name: Find APK
         run: |
           echo "查找编译生成的APK..."
           find TV -name "*.apk" -type f | while read apk; do
             echo "找到: $apk"
-            cp "$apk" ./fongmi_hwedding.apk
+            ls -la "$apk"
+            cp "$apk" ./fongmi_hwedding_final.apk
           done
           
-          # 如果没找到，尝试标准路径
-          if [ ! -f ./fongmi_hwedding.apk ]; then
-            cp TV/app/build/outputs/apk/debug/*.apk ./fongmi_hwedding.apk 2>/dev/null || echo "未找到APK"
+          # 如果没找到，尝试所有可能的输出路径
+          if [ ! -f ./fongmi_hwedding_final.apk ]; then
+            echo "尝试从标准路径复制..."
+            cp TV/app/build/outputs/apk/debug/*.apk ./fongmi_hwedding_final.apk 2>/dev/null || \
+            cp TV/app/build/outputs/apk/*/debug/*.apk ./fongmi_hwedding_final.apk 2>/dev/null || \
+            cp TV/app/build/outputs/apk/*.apk ./fongmi_hwedding_final.apk 2>/dev/null || \
+            echo "未找到APK"
           fi
+          
+          # 列出所有可能的输出目录
+          echo "=== 检查输出目录 ==="
+          ls -la TV/app/build/outputs/apk/ || true
+          ls -la TV/app/build/outputs/apk/debug/ || true
+          ls -la TV/app/build/outputs/apk/leanback/debug/ || true
 
-      - name: Upload artifacts
+      # 第七步：上传APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fongmi-hwedding-fixed
-          path: ./fongmi_hwedding.apk
+          name: fongmi-hwedding-final
+          path: ./fongmi_hwedding_final.apk
+          if-no-files-found: warn
           retention-days: 30
