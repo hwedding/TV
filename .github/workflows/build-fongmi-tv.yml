@@ -87,54 +87,46 @@ jobs:
           }
           EOF
 
-      # 第三步：最终修复 - 正确配置 build.gradle
-      - name: Final fix for build.gradle
+      # 第三步：最小化修改 build.gradle - 只添加必要的配置
+      - name: Minimal fix for build.gradle
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 1. 在文件顶部添加 apply plugin (如果不存在)
-          if ! grep -q "apply plugin: 'com.chaquo.python'" app/build.gradle; then
-            # 在文件开头插入 apply plugin 语句
-            sed -i '1i apply plugin: "com.chaquo.python"\n' app/build.gradle
-          fi
+          # 1. 确保文件以正确的插件应用开头
+          # 先检查文件内容
+          echo "=== 原始文件开头 ==="
+          head -5 app/build.gradle
           
-          # 2. 移除可能导致问题的 plugins 块 (如果存在且不是必需的)
-          #    很多老旧项目不使用 plugins {} 块，而是用 apply plugin
-          sed -i '/plugins {/,/}/d' app/build.gradle
+          # 2. 如果文件没有正确应用Android插件，我们需要修复
+          # 但为了避免破坏原有配置，我们只在文件末尾添加必要的chaquopy配置
           
-          # 3. 确保 compileSdk 存在 (如果不存在则添加)
-          if ! grep -q "compileSdk" app/build.gradle; then
-            sed -i '/android {/a \    compileSdk 33' app/build.gradle
-          fi
-          
-          # 4. 确保 defaultConfig 存在基础配置 (如果不存在)
-          if ! grep -q "defaultConfig" app/build.gradle; then
-            # 使用精确的 sed 命令插入 defaultConfig 块
-            sed -i '/compileSdk 33/a \\n    defaultConfig {\n        applicationId "com.fongmi.android.tv"\n        minSdk 21\n        targetSdk 33\n        versionCode 1\n        versionName "1.0"\n    }' app/build.gradle
-          fi
-          
-          # 5. 确保 chaquopy 块正确配置 (如果不存在或需要修正)
-          #    先删除可能存在的错误 chaquopy 块，然后重新添加正确的
-          sed -i '/chaquopy {/,/}/d' app/build.gradle
-          # 在文件末尾添加正确的 chaquopy 配置
-          cat >> app/build.gradle << 'EOF'
+          # 3. 添加chaquopy pythonVersion配置（如果不存在）
+          if ! grep -q "pythonVersion" app/build.gradle; then
+            cat >> app/build.gradle << 'EOF'
 
+          // Python configuration for chaquopy
           chaquopy {
               pythonVersion "3.10"
           }
           EOF
+            echo "已添加chaquopy配置"
+          else
+            echo "chaquopy配置已存在"
+          fi
           
-          echo ">>> 最终修改后的 app/build.gradle 关键内容:"
-          grep -E "apply plugin|compileSdk|defaultConfig|chaquopy|pythonVersion" app/build.gradle
+          # 4. 检查并添加compileSdk（如果不存在）- 但不要破坏android块
+          if ! grep -q "compileSdk" app/build.gradle; then
+            echo "警告: 未找到compileSdk，可能需要手动添加"
+          fi
           
-          echo ">>> 显示文件末尾20行以确认:"
-          tail -20 app/build.gradle
+          echo "=== 修改后的文件末尾 ==="
+          tail -10 app/build.gradle
 
-      # 第四步：检查项目根目录的 build.gradle 是否有插件管理
-      - name: Check root build.gradle
+      # 第四步：检查项目根目录的配置文件
+      - name: Check root configuration files
         run: |
           cd TV
           echo "=== 根目录 build.gradle ==="
@@ -142,6 +134,9 @@ jobs:
           
           echo "=== 根目录 settings.gradle ==="
           cat settings.gradle || echo "没有settings.gradle"
+          
+          echo "=== gradle.properties ==="
+          cat gradle.properties || echo "没有gradle.properties"
 
       # 第五步：创建 local.properties
       - name: Create local.properties
@@ -179,17 +174,12 @@ jobs:
             cp TV/app/build/outputs/apk/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
             echo "未找到APK"
           fi
-          
-          # 列出所有可能的输出目录
-          echo "=== 检查输出目录 ==="
-          ls -la TV/app/build/outputs/apk/ || true
-          ls -la TV/app/build/outputs/apk/debug/ || true
 
       # 第八步：上传 APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fongmi-hwedding-final
+          name: fongmi-hwedding-minimal
           path: ./fongmi_hwedding.apk
           if-no-files-found: warn
           retention-days: 30
