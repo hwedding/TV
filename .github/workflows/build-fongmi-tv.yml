@@ -1,4 +1,4 @@
-name: Build FongMi TV (内置hwedding源)
+name: Build FongMi TV (Python 3.10)
 
 on:
   workflow_dispatch:  # 手动触发
@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 检出你的代码
+      # 1. 检出代码
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -23,99 +23,155 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3. 安装Python 3.9（FongMi用的版本）
-      - name: Setup Python 3.9
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      # 4. 安装必要的系统包
-      - name: Install system dependencies
+      # 3. 安装Python 3.10（使用deadsnakes PPA）
+      - name: Install Python 3.10
         run: |
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
           sudo apt update
-          sudo apt install -y libc6-dev
+          sudo apt install -y python3.10 python3.10-dev python3.10-distutils python3.10-venv
+          sudo apt install -y python3-pip
+          
+          # 设置python3.10为默认python3
+          sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+          sudo update-alternatives --set python3 /usr/bin/python3.10
+          
+          # 安装必要的Python包
+          curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10
+          
+          # 验证版本
+          python3 --version
+          python3 -m pip --version
 
-      # 5. 修改源代码（这才是关键！）
-      - name: Inject default config URL
+      # 4. 设置Python环境变量
+      - name: Set Python environment
         run: |
-          cd TV
+          echo "PYTHON_EXECUTABLE=/usr/bin/python3.10" >> $GITHUB_ENV
+          echo "PATH=/usr/bin:$PATH" >> $GITHUB_ENV
           
-          # 方法1：修改Config类（最可靠的方式）
-          # 查找Config.java文件
-          find . -name "*.java" -type f -exec grep -l "getVodUrl" {} \; | while read file; do
-            echo "修改文件: $file"
-            # 备份原文件
-            cp "$file" "$file.bak"
-            # 在getVodUrl方法中添加默认值逻辑
-            sed -i '/public String getVodUrl()/ {
-              N
-              s/return [^;]*;/return "http:\/\/tv.hwedding.cn";/
-            }' "$file"
-          done
-          
-          # 方法2：修改初始化代码（在第一次启动时设置默认值）
-          find . -name "*.java" -type f -exec grep -l "SharedPreferences" {} \; | while read file; do
-            # 在onCreate或init方法中添加默认配置
-            echo "// 可能需要手动修改: $file"
-          done
+          # 创建符号链接
+          sudo ln -sf /usr/bin/python3.10 /usr/bin/python
+          python --version
 
-      # 6. 修改build.gradle（修复Chaquopy配置）
-      - name: Fix gradle configuration
+      # 5. 安装Android SDK依赖
+      - name: Install Android SDK dependencies
+        run: |
+          sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386
+
+      # 6. 修改gradle配置（适配Python 3.10）
+      - name: Configure gradle for Python 3.10
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 确保Chaquopy版本兼容
-          sed -i '/chaquopy {/a \ \ \ \ pythonVersion "3.9"' app/build.gradle
-          
-          # 添加阿里云镜像加速
-          sed -i '/repositories {/a \ \ \ \ \ \ maven { url "https://maven.aliyun.com/repository/public" }' build.gradle
-          sed -i '/repositories {/a \ \ \ \ \ \ maven { url "https://maven.aliyun.com/repository/google" }' build.gradle
+          # 确保Python版本正确
+          if grep -q "chaquopy" app/build.gradle; then
+            # 如果有chaquopy块，修改版本
+            sed -i 's/pythonVersion ".*"/pythonVersion "3.10"/g' app/build.gradle
+          else
+            # 如果没有，添加chaquopy配置
+            echo "添加chaquopy配置..."
+            # 在android块之前添加chaquopy
+            sed -i '/android {/i chaquopy {\n    pythonVersion "3.10"\n}\n' app/build.gradle
+          fi
 
-      # 7. 生成debug keystore（解决签名问题）
-      - name: Generate debug keystore
+      # 7. 修改源码 - 内置你的源地址
+      - name: Inject custom config URL
         run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Android Debug, OU=Android, O=Google, L=Android, C=US"
+          cd TV
+          
+          # 方法1: 修改Config类（最可靠）
+          CONFIG_FILES=$(find . -name "*.java" -type f -exec grep -l "getVodUrl" {} \;)
+          for file in $CONFIG_FILES; do
+            echo "检查文件: $file"
+            # 备份
+            cp "$file" "$file.bak"
+            # 修改getVodUrl方法返回你的地址
+            sed -i 's/return [^;]*getVodUrl[^;]*;/return "http:\/\/tv.hwedding.cn";/g' "$file"
+          done
+          
+          # 方法2: 在Application类中添加默认配置
+          APP_FILE=$(find . -name "App.java" -o -name "TVApplication.java" -o -name "MainApplication.java" | head -1)
+          if [ -f "$APP_FILE" ]; then
+            echo "找到Application文件: $APP_FILE"
+            cp "$APP_FILE" "$APP_FILE.bak"
+            
+            # 在onCreate中添加SharedPreferences默认值
+            sed -i '/super.onCreate(/a \n        // 设置默认源地址\n        android.content.SharedPreferences sp = getSharedPreferences("config", MODE_PRIVATE);\n        if (!sp.contains("vod_url")) {\n            sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();\n        }\n' "$APP_FILE"
+          fi
 
-      # 8. 授予gradlew执行权限
+      # 8. 创建local.properties
+      - name: Create local.properties
+        run: |
+          cd TV
+          cat > local.properties << EOF
+          sdk.dir=/usr/local/lib/android/sdk
+          python.executable=/usr/bin/python3.10
+          EOF
+
+      # 9. 授予gradlew执行权限
       - name: Make gradlew executable
         run: chmod +x TV/gradlew
 
-      # 9. 编译debug版本（避免签名问题）
+      # 10. 生成debug keystore
+      - name: Create debug keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, OU=Android, O=Google, L=Android, ST=Android, C=US"
+
+      # 11. 编译debug APK
       - name: Build debug APK
         run: |
           cd TV
+          echo "清理旧编译..."
           ./gradlew clean
+          
+          echo "开始编译debug APK..."
           ./gradlew assembleDebug --stacktrace
+          
+          echo "编译完成，查找APK..."
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+          PYTHON_EXECUTABLE: /usr/bin/python3.10
 
-      # 10. 查找并上传APK
-      - name: Find and upload APK
+      # 12. 查找所有APK
+      - name: Find and list APKs
         run: |
-          echo "搜索编译出的APK..."
+          echo "=== 搜索所有APK文件 ==="
           find TV -name "*.apk" -type f | while read apk; do
             echo "找到APK: $apk"
-            cp "$apk" "./app-debug.apk"
+            ls -la "$apk"
+            # 复制到根目录
+            cp "$apk" "./$(basename $apk)"
           done
           
-          # 如果没有找到，尝试更多路径
-          if [ ! -f "./app-debug.apk" ]; then
-            echo "尝试其他路径..."
-            find TV -name "*.apk" -type f -exec cp {} ./app-debug.apk \; 2>/dev/null || true
-          fi
-          
-          # 列出所有可能的APK位置
-          echo "所有APK文件："
-          find TV -name "*.apk" -type f | sort
+          echo "=== 检查输出目录 ==="
+          ls -la TV/app/build/outputs/apk/ || true
+          ls -la TV/app/build/outputs/apk/debug/ || true
+          ls -la TV/app/build/outputs/apk/release/ || true
 
-      # 11. 上传APK
-      - name: Upload APK
+      # 13. 如果没找到APK，尝试更多路径
+      - name: Alternative APK search
+        if: failure()
+        run: |
+          echo "在更广范围内搜索APK..."
+          find . -name "*.apk" -type f | while read apk; do
+            echo "找到: $apk"
+            cp "$apk" "./found_$(basename $apk)"
+          done
+
+      # 14. 上传APK
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: FongMi-TV-内置hwedding源
-          path: ./*.apk
+          name: FongMi-TV-Python3.10
+          path: |
+            ./*.apk
+            TV/app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
           retention-days: 30
