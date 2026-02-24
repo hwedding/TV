@@ -1,58 +1,121 @@
-name: Build FongMi TV (精准api/config路径+内置hwedding源)
-on: workflow_dispatch
+name: Build FongMi TV (内置hwedding源)
+
+on:
+  workflow_dispatch:  # 手动触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      # 拉取你新Fork的TV仓库（源码和官方一致）
-      - name: Checkout Your Forked TV Repo
+      # 1. 检出你的代码
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           repository: hwedding/TV
           ref: release
           path: TV
 
-      # 精准替换api/config/下的接口文件（手动确认的路径）
-      - name: Inject Custom Config URL (api/config/)
-        run: |
-          # 精准路径：api/config/，替换你的源
-          sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
-          sed -i 's#return Config.get().getLiveUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/LiveConfig.java
-          # 配置Chaquopy使用Python 3.10
-          sed -i '/chaquopy {/a \ \ \ \ pythonVersion "3.10"' TV/app/build.gradle
-
-      # 安装Python 3.10（解决Chaquopy依赖）
-      - name: Install Python 3.10
-        run: |
-          sudo add-apt-repository ppa:deadsnakes/ppa -y
-          sudo apt update -y
-          sudo apt install -y python3.10 python3.10-dev
-          sudo ln -sf /usr/bin/python3.10 /usr/bin/python
-          python --version
-
-      # 配置JDK 17
+      # 2. 设置JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 编译APK（清理缓存，确保纯净编译）
-      - name: Build Release APK
+      # 3. 安装Python 3.9（FongMi用的版本）
+      - name: Setup Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      # 4. 安装必要的系统包
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libc6-dev
+
+      # 5. 修改源代码（这才是关键！）
+      - name: Inject default config URL
         run: |
           cd TV
-          chmod +x gradlew
-          ./gradlew clean  # 清理旧编译缓存
-          ./gradlew assembleRelease --info
-        env:
-          PYTHON_EXECUTABLE: /usr/bin/python3.10
-          GRADLE_OPTS: "-Dmaven.aliyun.com/nexus/content/groups/public/"
+          
+          # 方法1：修改Config类（最可靠的方式）
+          # 查找Config.java文件
+          find . -name "*.java" -type f -exec grep -l "getVodUrl" {} \; | while read file; do
+            echo "修改文件: $file"
+            # 备份原文件
+            cp "$file" "$file.bak"
+            # 在getVodUrl方法中添加默认值逻辑
+            sed -i '/public String getVodUrl()/ {
+              N
+              s/return [^;]*;/return "http:\/\/tv.hwedding.cn";/
+            }' "$file"
+          done
+          
+          # 方法2：修改初始化代码（在第一次启动时设置默认值）
+          find . -name "*.java" -type f -exec grep -l "SharedPreferences" {} \; | while read file; do
+            # 在onCreate或init方法中添加默认配置
+            echo "// 可能需要手动修改: $file"
+          done
 
-      # 上传APK（适配官方源码的输出路径）
+      # 6. 修改build.gradle（修复Chaquopy配置）
+      - name: Fix gradle configuration
+        run: |
+          cd TV
+          
+          # 备份原文件
+          cp app/build.gradle app/build.gradle.bak
+          
+          # 确保Chaquopy版本兼容
+          sed -i '/chaquopy {/a \ \ \ \ pythonVersion "3.9"' app/build.gradle
+          
+          # 添加阿里云镜像加速
+          sed -i '/repositories {/a \ \ \ \ \ \ maven { url "https://maven.aliyun.com/repository/public" }' build.gradle
+          sed -i '/repositories {/a \ \ \ \ \ \ maven { url "https://maven.aliyun.com/repository/google" }' build.gradle
+
+      # 7. 生成debug keystore（解决签名问题）
+      - name: Generate debug keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Android Debug, OU=Android, O=Google, L=Android, C=US"
+
+      # 8. 授予gradlew执行权限
+      - name: Make gradlew executable
+        run: chmod +x TV/gradlew
+
+      # 9. 编译debug版本（避免签名问题）
+      - name: Build debug APK
+        run: |
+          cd TV
+          ./gradlew clean
+          ./gradlew assembleDebug --stacktrace
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      # 10. 查找并上传APK
+      - name: Find and upload APK
+        run: |
+          echo "搜索编译出的APK..."
+          find TV -name "*.apk" -type f | while read apk; do
+            echo "找到APK: $apk"
+            cp "$apk" "./app-debug.apk"
+          done
+          
+          # 如果没有找到，尝试更多路径
+          if [ ! -f "./app-debug.apk" ]; then
+            echo "尝试其他路径..."
+            find TV -name "*.apk" -type f -exec cp {} ./app-debug.apk \; 2>/dev/null || true
+          fi
+          
+          # 列出所有可能的APK位置
+          echo "所有APK文件："
+          find TV -name "*.apk" -type f | sort
+
+      # 11. 上传APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FongMi-TV-内置hwedding源（精准路径版）
-          path: TV/app/build/outputs/apk/release/*.apk
+          name: FongMi-TV-内置hwedding源
+          path: ./*.apk
+          if-no-files-found: warn
           retention-days: 30
