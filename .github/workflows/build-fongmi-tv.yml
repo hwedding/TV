@@ -95,38 +95,49 @@ jobs:
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 检查并添加 plugins 块（如果不存在）
+          # 1. 在文件开头添加 plugins 块（如果不存在）
           if ! grep -q "plugins" app/build.gradle; then
-            # 在文件开头添加 plugins 块
             sed -i '1i plugins {\n    id "com.android.application"\n    id "com.chaquo.python" version "14.0.2"\n}\n' app/build.gradle
           else
             # 如果已有 plugins 块，检查是否包含 chaquopy
             if ! grep -q "com.chaquo.python" app/build.gradle; then
-              # 在 plugins 块内添加 chaquopy
               sed -i '/plugins {/a \    id "com.chaquo.python" version "14.0.2"' app/build.gradle
             fi
           fi
           
-          # 检查并添加 compileSdk（如果不存在）
+          # 2. 添加 compileSdk 和 defaultConfig（如果不存在）
           if ! grep -q "compileSdk" app/build.gradle; then
-            # 在 android 块内添加 compileSdk
-            sed -i '/android {/a \    compileSdk 33\n\n    defaultConfig {\n        applicationId "com.fongmi.android.tv"\n        minSdk 21\n        targetSdk 33\n        versionCode 1\n        versionName "1.0"\n    }' app/build.gradle
+            # 使用 printf 来处理多行插入，避免反斜杠问题
+            printf '%s\n' '/android {/a\' \
+                '    compileSdk 33' \
+                '' \
+                '    defaultConfig {' \
+                '        applicationId "com.fongmi.android.tv"' \
+                '        minSdk 21' \
+                '        targetSdk 33' \
+                '        versionCode 1' \
+                '        versionName "1.0"' \
+                '    }' \
+                '.' | sed -i -f - app/build.gradle
           fi
           
-          # 检查并添加 pythonVersion 配置（如果不存在）
+          # 3. 添加 chaquopy 配置（如果不存在）
           if ! grep -q "pythonVersion" app/build.gradle; then
-            # 在 android 块后面添加 chaquopy 配置
-            sed -i '/android {/,/}/ {
-              /}/ a\
-\
-chaquopy {\
-    pythonVersion "3.10"\
-}
-            }' app/build.gradle
+            # 在文件末尾添加 chaquopy 配置
+            cat >> app/build.gradle << 'EOF'
+
+          chaquopy {
+              pythonVersion "3.10"
+          }
+          EOF
           fi
           
           echo "=== 修改后的 build.gradle 关键配置 ==="
           grep -E "plugins|compileSdk|pythonVersion|chaquopy" app/build.gradle || echo "未找到相关配置"
+          
+          # 显示完整的 build.gradle 内容
+          echo "=== 完整的 build.gradle ==="
+          cat app/build.gradle
 
       # 第四步：创建 local.properties
       - name: Create local.properties
