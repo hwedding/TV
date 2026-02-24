@@ -87,60 +87,73 @@ jobs:
           }
           EOF
 
-      # 第三步：精确修复 - 在文件头部应用chaquopy插件
-      - name: Precise fix - apply chaquopy plugin
+      # 第三步：精确修复 - 将chaquopy插件添加到plugins块
+      - name: Precise fix - add chaquopy to plugins block
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 显示原始文件内容
-          echo "=== 原始文件内容 ==="
-          cat app/build.gradle
+          # 显示原始文件内容前20行
+          echo "=== 原始文件开头 ==="
+          head -20 app/build.gradle
           
-          # 1. 在文件开头应用chaquopy插件（如果尚未应用）
-          if ! grep -q "apply plugin: 'com.chaquo.python'" app/build.gradle; then
-            # 创建临时文件
-            TMP_FILE=$(mktemp)
+          # 1. 检查并修改 plugins 块
+          if grep -q "plugins {" app/build.gradle; then
+            echo "找到 plugins 块，正在添加 chaquopy 插件..."
             
-            # 写入apply plugin到临时文件
-            echo "apply plugin: \"com.chaquo.python\"" > "$TMP_FILE"
-            echo "" >> "$TMP_FILE"
-            
-            # 将原文件内容追加到临时文件
-            cat app/build.gradle >> "$TMP_FILE"
-            
-            # 用临时文件替换原文件
-            mv "$TMP_FILE" app/build.gradle
-            
-            echo "已在文件头部应用chaquopy插件"
+            # 在 plugins 块内添加 chaquopy（如果不存在）
+            if ! grep -q "com.chaquo.python" app/build.gradle; then
+              # 在 plugins 块的最后一行之前插入
+              sed -i '/plugins {/,/}/ {
+                /}/ i\    id "com.chaquo.python" version "14.0.2"
+              }' app/build.gradle
+              echo "已在 plugins 块中添加 chaquopy 插件"
+            else
+              echo "plugins 块中已包含 chaquopy 插件"
+            fi
           else
-            echo "chaquopy插件已应用"
+            echo "未找到 plugins 块，在文件开头创建..."
+            # 创建临时文件，在最开头添加 plugins 块
+            TMP_FILE=$(mktemp)
+            cat > "$TMP_FILE" << 'EOF'
+plugins {
+    id "com.android.application"
+    id "com.chaquo.python" version "14.0.2"
+}
+
+EOF
+            cat app/build.gradle >> "$TMP_FILE"
+            mv "$TMP_FILE" app/build.gradle
+            echo "已在文件开头创建 plugins 块"
           fi
           
-          # 2. 检查并添加compileSdk（如果不存在）
-          if ! grep -q "compileSdk" app/build.gradle; then
-            echo "警告: 未找到compileSdk配置，可能需要手动添加"
+          # 2. 移除可能存在的 apply plugin 语句（避免冲突）
+          if grep -q "apply plugin:.*chaquo" app/build.gradle; then
+            sed -i '/apply plugin:.*chaquo/d' app/build.gradle
+            echo "已移除旧的 apply plugin 语句"
           fi
           
-          # 3. 确保文件末尾有正确的pythonVersion配置（如果不存在）
+          # 3. 确保文件末尾有正确的 pythonVersion 配置（如果不存在）
           if ! grep -q "pythonVersion" app/build.gradle; then
             cat >> app/build.gradle << 'EOF'
 
-          // Python configuration for chaquopy
-          chaquopy {
-              pythonVersion "3.10"
-          }
-          EOF
-            echo "已在文件末尾添加pythonVersion配置"
+// Python configuration for chaquopy
+chaquopy {
+    pythonVersion "3.10"
+}
+EOF
+            echo "已在文件末尾添加 pythonVersion 配置"
           else
-            echo "pythonVersion配置已存在"
+            echo "pythonVersion 配置已存在"
           fi
           
-          # 显示修改后的文件内容
-          echo "=== 修改后的文件内容 ==="
-          cat app/build.gradle
+          # 显示修改后的文件开头
+          echo "=== 修改后的文件开头 ==="
+          head -20 app/build.gradle
+          echo "=== 修改后的文件末尾 ==="
+          tail -10 app/build.gradle
 
       # 第四步：检查项目根目录的配置文件
       - name: Check root configuration files
