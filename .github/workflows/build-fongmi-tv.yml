@@ -77,14 +77,14 @@ jobs:
           }
           EOF
 
-      - name: Configure build.gradle with final fixes
+      - name: Configure build.gradle with all necessary settings
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 创建新的build.gradle内容，minSdk改为24
+          # 创建新的build.gradle内容
           cat > app/build.gradle << 'EOF'
           plugins {
               id "com.android.application"
@@ -97,10 +97,14 @@ jobs:
 
               defaultConfig {
                   applicationId "com.fongmi.android.tv"
-                  minSdk 24  // 修改为24以满足Chaquopy要求
+                  minSdk 24
                   targetSdk 33
                   versionCode 1
                   versionName "1.0"
+                  
+                  ndk {
+                      abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+                  }
               }
 
               buildTypes {
