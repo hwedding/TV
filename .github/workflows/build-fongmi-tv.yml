@@ -1,4 +1,4 @@
-name: Build FongMi TV
+name: Debug - Find Config Location
 
 on:
   workflow_dispatch:
@@ -14,14 +14,23 @@ jobs:
           ref: release
           path: TV
 
-      # 修改源码
-      - name: Inject Custom Config URL
+      # 第一步：搜索所有可能包含配置地址的Java文件
+      - name: Search for config related files
         run: |
-          sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
-          sed -i 's#return Config.get().getLiveUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/LiveConfig.java
-          sed -i '/chaquopy {/a \    pythonVersion "3.10"' TV/app/build.gradle
+          cd TV
+          echo "=== 搜索包含 'config' 的Java文件 ==="
+          grep -r "config" --include="*.java" . | head -20
+          
+          echo -e "\n=== 搜索包含 'url' 的Java文件 ==="
+          grep -r "url" --include="*.java" . | head -20
+          
+          echo -e "\n=== 搜索包含 'setConfig' 的Java文件 ==="
+          grep -r "setConfig" --include="*.java" . | head -10
+          
+          echo -e "\n=== 搜索包含 'getVodUrl' 的Java文件 ==="
+          grep -r "getVodUrl" --include="*.java" . | head -10
 
-      # 安装Python 3.10
+      # 第二步：安装Python 3.10
       - name: Install Python 3.10
         run: |
           sudo add-apt-repository ppa:deadsnakes/ppa -y
@@ -34,7 +43,46 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 编译
+      # 第三步：尝试多种方式修改源码
+      - name: Try multiple injection methods
+        run: |
+          cd TV
+          
+          # 方法1: 修改VodConfig.java（你原来的方法）
+          echo "方法1: 修改VodConfig.java"
+          sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn/zhou.json";#g' app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java 2>/dev/null || echo "VodConfig.java未找到"
+          
+          # 方法2: 修改Config.java（如果有）
+          echo "方法2: 修改Config.java"
+          find . -name "Config.java" | while read file; do
+            echo "修改: $file"
+            sed -i 's#return getVodUrl();#return "http://tv.hwedding.cn/zhou.json";#g' "$file"
+          done
+          
+          # 方法3: 修改Parse.java（解析器相关）
+          echo "方法3: 修改Parse.java"
+          find . -name "Parse.java" | while read file; do
+            echo "修改: $file"
+            sed -i 's#getUrl()#return "http://tv.hwedding.cn/zhou.json";#g' "$file"
+          done
+          
+          # 方法4: 在SharedPreferences中预置值
+          echo "方法4: 在Application类中预置"
+          APP_FILE=$(find . -name "App.java" -o -name "TVApp.java" -o -name "MainApplication.java" | head -1)
+          if [ -f "$APP_FILE" ]; then
+            echo "找到Application: $APP_FILE"
+            # 在onCreate中添加预置代码
+            sed -i '/onCreate(/a \ \ \ \ \ \ \ \ // 预置配置地址\n        android.content.SharedPreferences sp = getSharedPreferences("user_config", MODE_PRIVATE);\n        if (!sp.contains("vod_url")) {\n            sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();\n        }\n' "$APP_FILE"
+          fi
+          
+          # 方法5: 修改默认值文件
+          echo "方法5: 修改默认值文件"
+          find . -name "strings.xml" | while read file; do
+            echo "检查: $file"
+            grep -l "config" "$file" && echo "找到配置文件: $file"
+          done
+
+      # 第四步：编译
       - name: Build APK
         run: |
           cd TV
@@ -44,25 +92,21 @@ jobs:
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
 
-      # 重命名APK为简单英文名
-      - name: Rename APK
+      # 第五步：上传APK和搜索日志
+      - name: Upload APK and debug info
         run: |
-          # 查找并复制APK，使用简单英文名
-          find TV -name "*.apk" -type f | while read apk; do
-            echo "找到APK: $apk"
-            cp "$apk" "./fongmitv_hwedding.apk"
-          done
+          find TV -name "*.apk" -type f -exec cp {} ./fongmitv.apk \;
           
-          # 如果没有找到，检查输出目录
-          if [ ! -f "./fongmitv_hwedding.apk" ]; then
-            echo "尝试从标准路径复制..."
-            cp TV/app/build/outputs/apk/debug/*.apk ./fongmitv_hwedding.apk 2>/dev/null || true
-          fi
-
-      # 上传 - 使用简单英文名
-      - name: Upload APK
+          # 保存搜索到的文件列表
+          cd TV
+          find . -name "*.java" -type f > ../java_files.txt
+          cd ..
+          
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fongmitv-hwedding-build  # 只用英文和连字符
-          path: ./fongmitv_hwedding.apk
+          name: fongmitv-debug-build
+          path: |
+            ./fongmitv.apk
+            ./java_files.txt
           retention-days: 30
