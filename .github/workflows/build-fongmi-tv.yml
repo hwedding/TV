@@ -77,14 +77,14 @@ jobs:
           }
           EOF
 
-      - name: Configure build.gradle with namespace and chaquopy
+      - name: Configure build.gradle with final fixes
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 创建新的build.gradle内容
+          # 创建新的build.gradle内容，minSdk改为24
           cat > app/build.gradle << 'EOF'
           plugins {
               id "com.android.application"
@@ -97,7 +97,7 @@ jobs:
 
               defaultConfig {
                   applicationId "com.fongmi.android.tv"
-                  minSdk 21
+                  minSdk 24  // 修改为24以满足Chaquopy要求
                   targetSdk 33
                   versionCode 1
                   versionName "1.0"
@@ -128,7 +128,7 @@ jobs:
           }
           EOF
           
-          echo ">>> 修正后的 build.gradle 内容:"
+          echo ">>> 最终修正后的 build.gradle 内容:"
           cat app/build.gradle
 
       - name: Create local.properties
