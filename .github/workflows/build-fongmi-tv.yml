@@ -1,13 +1,12 @@
-name: Build FongMi TV (基于你的原始版本修复)
+name: Build FongMi TV
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 拉取你新Fork的TV仓库
       - name: Checkout Your Forked TV Repo
         uses: actions/checkout@v4
         with:
@@ -15,69 +14,55 @@ jobs:
           ref: release
           path: TV
 
-      # 精准替换api/config/下的接口文件
-      - name: Inject Custom Config URL (api/config/)
+      # 修改源码
+      - name: Inject Custom Config URL
         run: |
-          # 精准路径：api/config/，替换你的源
           sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
           sed -i 's#return Config.get().getLiveUrl();#return "http://tv.hwedding.cn";#g' TV/app/src/main/java/com/fongmi/android/tv/api/config/LiveConfig.java
-          # 配置Chaquopy使用Python 3.10（注意这里不加多余空格）
           sed -i '/chaquopy {/a \    pythonVersion "3.10"' TV/app/build.gradle
 
-      # 安装Python 3.10（不用pip，避免冲突）
+      # 安装Python 3.10
       - name: Install Python 3.10
         run: |
           sudo add-apt-repository ppa:deadsnakes/ppa -y
           sudo apt update
-          sudo apt install -y python3.10 python3.10-dev python3.10-distutils
-          # 不卸载系统pip，直接用python3.10的ensurepip
-          sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
-          sudo update-alternatives --set python3 /usr/bin/python3.10
-          python3 --version
+          sudo apt install -y python3.10 python3.10-dev
 
-      # 配置JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 编译APK - 关键修改在这里！
-      - name: Build Release APK
+      # 编译
+      - name: Build APK
         run: |
           cd TV
           chmod +x gradlew
           ./gradlew clean
-          # 先编译debug版本测试（release需要签名）
-          ./gradlew assembleDebug --info
+          ./gradlew assembleDebug
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
 
-      # 修复：查找APK的正确路径
-      - name: Find APK files
+      # 重命名APK为简单英文名
+      - name: Rename APK
         run: |
-          echo "=== 搜索所有APK文件 ==="
-          # 搜索整个TV目录
+          # 查找并复制APK，使用简单英文名
           find TV -name "*.apk" -type f | while read apk; do
             echo "找到APK: $apk"
-            # 复制到当前目录
-            cp "$apk" "./$(basename $apk)"
+            cp "$apk" "./fongmitv_hwedding.apk"
           done
           
-          # 如果没有找到，尝试列出可能的输出目录
-          if [ ! -f "*.apk" ]; then
-            echo "=== 检查输出目录结构 ==="
-            ls -la TV/app/build/outputs/ || true
-            ls -la TV/app/build/outputs/apk/ || true
-            ls -la TV/app/build/outputs/apk/debug/ || true
-            ls -la TV/app/build/outputs/apk/release/ || true
+          # 如果没有找到，检查输出目录
+          if [ ! -f "./fongmitv_hwedding.apk" ]; then
+            echo "尝试从标准路径复制..."
+            cp TV/app/build/outputs/apk/debug/*.apk ./fongmitv_hwedding.apk 2>/dev/null || true
           fi
 
-      # 上传APK
+      # 上传 - 使用简单英文名
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FongMi-TV-内置hwedding源（修复版）
-          path: ./*.apk
-          if-no-files-found: warn
+          name: fongmitv-hwedding-build  # 只用英文和连字符
+          path: ./fongmitv_hwedding.apk
           retention-days: 30
