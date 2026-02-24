@@ -29,53 +29,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Modify App.java to add default config
+      - name: Modify App.java to add default config (minimal changes)
         run: |
           cd TV
-          cat > app/src/main/java/com/fongmi/android/tv/App.java << 'EOF'
-          package com.fongmi.android.tv;
-
-          import android.app.Application;
-          import android.content.SharedPreferences;
-          import android.preference.PreferenceManager;
-
-          import com.fongmi.android.tv.utils.Notify;
-          import com.fongmi.android.tv.utils.Pref;
-          import com.fongmi.android.tv.utils.UrlUtil;
-
-          public class App extends Application {
-              private static App instance;
-
-              public static App get() {
-                  return instance;
-              }
-
-              @Override
-              public void onCreate() {
-                  super.onCreate();
-                  instance = this;
-                  
-                  try {
-                      SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
-                      String configUrl = sp.getString("config_url", "");
-                      if (configUrl == null || configUrl.isEmpty()) {
-                          sp.edit().putString("config_url", "http://tv.hwedding.cn/zhou.json").apply();
-                      }
-                      
-                      String vodUrl = sp.getString("vod_url", "");
-                      if (vodUrl == null || vodUrl.isEmpty()) {
-                          sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();
-                      }
-                  } catch (Exception e) {
-                      e.printStackTrace();
-                  }
-                  
-                  Notify.init(this);
-                  Pref.init(this);
-                  UrlUtil.init(this);
-              }
-          }
-          EOF
+          
+          # 备份原文件
+          cp app/src/main/java/com/fongmi/android/tv/App.java app/src/main/java/com/fongmi/android/tv/App.java.bak
+          
+          # 在 onCreate 方法中添加默认配置，保留原有所有内容
+          sed -i '/super.onCreate/a \        \n        // 设置默认配置地址\n        try {\n            android.content.SharedPreferences sp = android.preference.PreferenceManager.getDefaultSharedPreferences(this);\n            String configUrl = sp.getString("config_url", "");\n            if (configUrl == null || configUrl.isEmpty()) {\n                sp.edit().putString("config_url", "http://tv.hwedding.cn/zhou.json").apply();\n            }\n            \n            String vodUrl = sp.getString("vod_url", "");\n            if (vodUrl == null || vodUrl.isEmpty()) {\n                sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();\n            }\n        } catch (Exception e) {\n            e.printStackTrace();\n        }\n' app/src/main/java/com/fongmi/android/tv/App.java
+          
+          echo ">>> 修改后的 App.java (前30行):"
+          head -30 app/src/main/java/com/fongmi/android/tv/App.java
 
       - name: Minimal changes to build.gradle
         run: |
@@ -103,9 +68,6 @@ jobs:
           # 3. 检查并修改 minSdk（如果小于24）
           if grep -q "minSdk [0-9]" app/build.gradle; then
             sed -i 's/minSdk [0-9]\+/minSdk 24/g' app/build.gradle
-          else
-            # 如果不存在 minSdk，在 defaultConfig 中添加
-            sed -i '/defaultConfig {/a \        minSdk 24' app/build.gradle
           fi
           
           # 4. 检查并添加 ndk.abiFilters（如果不存在）
@@ -125,9 +87,6 @@ jobs:
           
           echo ">>> 修改后的 build.gradle 关键部分:"
           grep -E "plugins|namespace|minSdk|abiFilters|chaquopy" app/build.gradle
-          
-          echo ">>> 保留的原始配置:"
-          head -20 app/build.gradle
 
       - name: Create local.properties
         run: |
