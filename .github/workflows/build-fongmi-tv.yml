@@ -87,7 +87,7 @@ jobs:
           }
           EOF
 
-      # 第三步：正确配置 build.gradle
+      # 第三步：正确配置 build.gradle（使用项目已有的插件版本）
       - name: Configure build.gradle correctly
         run: |
           cd TV
@@ -95,19 +95,15 @@ jobs:
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 1. 在文件开头添加 plugins 块（如果不存在）
-          if ! grep -q "plugins" app/build.gradle; then
-            sed -i '1i plugins {\n    id "com.android.application"\n    id "com.chaquo.python" version "14.0.2"\n}\n' app/build.gradle
-          else
-            # 如果已有 plugins 块，检查是否包含 chaquopy
-            if ! grep -q "com.chaquo.python" app/build.gradle; then
-              sed -i '/plugins {/a \    id "com.chaquo.python" version "14.0.2"' app/build.gradle
-            fi
+          # 1. 移除我们添加的 plugins 块（如果有）
+          if grep -q "com.chaquo.python.*version" app/build.gradle; then
+            # 注释掉或删除我们添加的插件行
+            sed -i '/com.chaquo.python.*version/d' app/build.gradle
           fi
           
           # 2. 添加 compileSdk 和 defaultConfig（如果不存在）
           if ! grep -q "compileSdk" app/build.gradle; then
-            # 使用 printf 来处理多行插入，避免反斜杠问题
+            # 使用 printf 来处理多行插入
             printf '%s\n' '/android {/a\' \
                 '    compileSdk 33' \
                 '' \
@@ -121,11 +117,12 @@ jobs:
                 '.' | sed -i -f - app/build.gradle
           fi
           
-          # 3. 添加 chaquopy 配置（如果不存在）
+          # 3. 添加 chaquopy pythonVersion 配置（使用项目已有的插件）
           if ! grep -q "pythonVersion" app/build.gradle; then
-            # 在文件末尾添加 chaquopy 配置
+            # 在 android 块后面添加 chaquopy 配置
             cat >> app/build.gradle << 'EOF'
 
+          // Python configuration for chaquopy
           chaquopy {
               pythonVersion "3.10"
           }
@@ -133,20 +130,30 @@ jobs:
           fi
           
           echo "=== 修改后的 build.gradle 关键配置 ==="
-          grep -E "plugins|compileSdk|pythonVersion|chaquopy" app/build.gradle || echo "未找到相关配置"
+          grep -E "compileSdk|pythonVersion|chaquopy" app/build.gradle || echo "未找到相关配置"
           
           # 显示完整的 build.gradle 内容
           echo "=== 完整的 build.gradle ==="
           cat app/build.gradle
 
-      # 第四步：创建 local.properties
+      # 第四步：检查项目根目录的 build.gradle 是否有插件管理
+      - name: Check root build.gradle
+        run: |
+          cd TV
+          echo "=== 根目录 build.gradle ==="
+          cat build.gradle || echo "没有根build.gradle"
+          
+          echo "=== 根目录 settings.gradle ==="
+          cat settings.gradle || echo "没有settings.gradle"
+
+      # 第五步：创建 local.properties
       - name: Create local.properties
         run: |
           cd TV
           echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
           echo "python.executable=/usr/bin/python3.10" >> local.properties
 
-      # 第五步：编译 APK
+      # 第六步：编译 APK
       - name: Build APK
         run: |
           cd TV
@@ -157,7 +164,7 @@ jobs:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
           ANDROID_HOME: /usr/local/lib/android/sdk
 
-      # 第六步：查找 APK
+      # 第七步：查找 APK
       - name: Find APK
         run: |
           echo "查找编译生成的APK..."
@@ -175,13 +182,8 @@ jobs:
             cp TV/app/build/outputs/apk/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
             echo "未找到APK"
           fi
-          
-          # 列出所有可能的输出目录
-          echo "=== 检查输出目录 ==="
-          ls -la TV/app/build/outputs/apk/ || true
-          ls -la TV/app/build/outputs/apk/debug/ || true
 
-      # 第七步：上传 APK
+      # 第八步：上传 APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
