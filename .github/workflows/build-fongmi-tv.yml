@@ -29,18 +29,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Modify App.java to add default config (minimal changes)
+      - name: Modify App.java to add default config (try all possible keys)
         run: |
           cd TV
           
           # 备份原文件
           cp app/src/main/java/com/fongmi/android/tv/App.java app/src/main/java/com/fongmi/android/tv/App.java.bak
           
-          # 在 onCreate 方法中添加默认配置，保留原有所有内容
-          sed -i '/super.onCreate/a \        \n        // 设置默认配置地址\n        try {\n            android.content.SharedPreferences sp = android.preference.PreferenceManager.getDefaultSharedPreferences(this);\n            String configUrl = sp.getString("config_url", "");\n            if (configUrl == null || configUrl.isEmpty()) {\n                sp.edit().putString("config_url", "http://tv.hwedding.cn/zhou.json").apply();\n            }\n            \n            String vodUrl = sp.getString("vod_url", "");\n            if (vodUrl == null || vodUrl.isEmpty()) {\n                sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();\n            }\n        } catch (Exception e) {\n            e.printStackTrace();\n        }\n' app/src/main/java/com/fongmi/android/tv/App.java
+          # 在 onCreate 方法中添加默认配置，尝试所有可能的 key
+          sed -i '/super.onCreate/a \        \n        // 设置默认配置地址 - 尝试所有可能的 key\n        try {\n            android.content.SharedPreferences sp = android.preference.PreferenceManager.getDefaultSharedPreferences(this);\n            \n            // 可能的 key 列表\n            String[] possibleKeys = {"config_url", "vod_url", "address", "config_address", "url", "api_url", "site_url"};\n            String defaultUrl = "http://tv.hwedding.cn/zhou.json";\n            \n            for (String key : possibleKeys) {\n                String value = sp.getString(key, "");\n                if (value == null || value.isEmpty()) {\n                    sp.edit().putString(key, defaultUrl).apply();\n                }\n            }\n            \n            // 同时保存一份到默认配置\n            android.content.SharedPreferences defaultSp = android.preference.PreferenceManager.getDefaultSharedPreferences(this);\n            defaultSp.edit().putString("config_url", defaultUrl).apply();\n            \n        } catch (Exception e) {\n            e.printStackTrace();\n        }\n' app/src/main/java/com/fongmi/android/tv/App.java
           
-          echo ">>> 修改后的 App.java (前30行):"
-          head -30 app/src/main/java/com/fongmi/android/tv/App.java
+          echo ">>> 修改后的 App.java (显示添加的代码):"
+          grep -A20 -B5 "设置默认配置地址" app/src/main/java/com/fongmi/android/tv/App.java
 
       - name: Minimal changes to build.gradle
         run: |
