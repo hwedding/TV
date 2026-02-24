@@ -1,4 +1,4 @@
-name: Debug - Find Config Location
+name: Detailed Debug - Find Config Location
 
 on:
   workflow_dispatch:
@@ -14,21 +14,18 @@ jobs:
           ref: release
           path: TV
 
-      # 第一步：搜索所有可能包含配置地址的Java文件
-      - name: Search for config related files
+      # 第一步：显示关键文件内容（修改前）
+      - name: Show original file content
         run: |
           cd TV
-          echo "=== 搜索包含 'config' 的Java文件 ==="
-          grep -r "config" --include="*.java" . | head -20
+          echo "=== 修改前的 Config.java ==="
+          cat app/src/main/java/com/fongmi/android/tv/bean/Config.java | head -50
           
-          echo -e "\n=== 搜索包含 'url' 的Java文件 ==="
-          grep -r "url" --include="*.java" . | head -20
+          echo -e "\n=== 修改前的 Parse.java ==="
+          cat app/src/main/java/com/fongmi/android/tv/bean/Parse.java | head -20
           
-          echo -e "\n=== 搜索包含 'setConfig' 的Java文件 ==="
-          grep -r "setConfig" --include="*.java" . | head -10
-          
-          echo -e "\n=== 搜索包含 'getVodUrl' 的Java文件 ==="
-          grep -r "getVodUrl" --include="*.java" . | head -10
+          echo -e "\n=== 修改前的 App.java ==="
+          cat app/src/main/java/com/fongmi/android/tv/App.java | head -50
 
       # 第二步：安装Python 3.10
       - name: Install Python 3.10
@@ -43,44 +40,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 第三步：尝试多种方式修改源码
-      - name: Try multiple injection methods
+      # 第三步：尝试精准修改（只改最可能的地方）
+      - name: Precise injection
         run: |
           cd TV
           
-          # 方法1: 修改VodConfig.java（你原来的方法）
-          echo "方法1: 修改VodConfig.java"
-          sed -i 's#return Config.get().getVodUrl();#return "http://tv.hwedding.cn/zhou.json";#g' app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java 2>/dev/null || echo "VodConfig.java未找到"
+          # 方法1: 修改Config.java中的getUrl方法
+          echo "修改 Config.java 中的 getUrl 方法"
+          sed -i 's/public String getUrl() {[^}]*}/public String getUrl() { return "http:\/\/tv.hwedding.cn\/zhou.json"; }/g' app/src/main/java/com/fongmi/android/tv/bean/Config.java
           
-          # 方法2: 修改Config.java（如果有）
-          echo "方法2: 修改Config.java"
-          find . -name "Config.java" | while read file; do
-            echo "修改: $file"
-            sed -i 's#return getVodUrl();#return "http://tv.hwedding.cn/zhou.json";#g' "$file"
-          done
+          # 方法2: 在App.java的onCreate中写入SharedPreferences
+          echo "修改 App.java"
+          # 在onCreate方法的第一行添加
+          sed -i '/public void onCreate() {/a \        \/\/ 设置默认配置地址\n        android.content.SharedPreferences sp = getSharedPreferences("config", MODE_PRIVATE);\n        if (!sp.getString("vod_url", "").isEmpty()) {\n            sp.edit().putString("vod_url", "http:\/\/tv.hwedding.cn\/zhou.json").apply();\n        }' app/src/main/java/com/fongmi/android/tv/App.java
           
-          # 方法3: 修改Parse.java（解析器相关）
-          echo "方法3: 修改Parse.java"
-          find . -name "Parse.java" | while read file; do
-            echo "修改: $file"
-            sed -i 's#getUrl()#return "http://tv.hwedding.cn/zhou.json";#g' "$file"
-          done
-          
-          # 方法4: 在SharedPreferences中预置值
-          echo "方法4: 在Application类中预置"
-          APP_FILE=$(find . -name "App.java" -o -name "TVApp.java" -o -name "MainApplication.java" | head -1)
-          if [ -f "$APP_FILE" ]; then
-            echo "找到Application: $APP_FILE"
-            # 在onCreate中添加预置代码
-            sed -i '/onCreate(/a \ \ \ \ \ \ \ \ // 预置配置地址\n        android.content.SharedPreferences sp = getSharedPreferences("user_config", MODE_PRIVATE);\n        if (!sp.contains("vod_url")) {\n            sp.edit().putString("vod_url", "http://tv.hwedding.cn/zhou.json").apply();\n        }\n' "$APP_FILE"
-          fi
-          
-          # 方法5: 修改默认值文件
-          echo "方法5: 修改默认值文件"
-          find . -name "strings.xml" | while read file; do
-            echo "检查: $file"
-            grep -l "config" "$file" && echo "找到配置文件: $file"
-          done
+          # 显示修改后的内容
+          echo -e "\n=== 修改后的 App.java ==="
+          cat app/src/main/java/com/fongmi/android/tv/App.java | grep -A10 -B5 "onCreate"
 
       # 第四步：编译
       - name: Build APK
@@ -92,21 +68,14 @@ jobs:
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
 
-      # 第五步：上传APK和搜索日志
-      - name: Upload APK and debug info
+      # 第五步：上传APK
+      - name: Upload APK
         run: |
           find TV -name "*.apk" -type f -exec cp {} ./fongmitv.apk \;
-          
-          # 保存搜索到的文件列表
-          cd TV
-          find . -name "*.java" -type f > ../java_files.txt
-          cd ..
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fongmitv-debug-build
-          path: |
-            ./fongmitv.apk
-            ./java_files.txt
+          name: fongmitv-precise-build
+          path: ./fongmitv.apk
           retention-days: 30
