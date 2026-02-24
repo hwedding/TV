@@ -77,7 +77,6 @@ jobs:
           }
           EOF
 
-      # 关键修复步骤：使用正确的 chaquopy 配置语法
       - name: Configure build.gradle with correct chaquopy syntax
         run: |
           cd TV
@@ -85,7 +84,7 @@ jobs:
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 创建新的build.gradle内容，修正 chaquopy 块
+          # 创建新的build.gradle内容，使用正确的 version 语法
           cat > app/build.gradle << 'EOF'
           plugins {
               id "com.android.application"
@@ -123,13 +122,9 @@ jobs:
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
 
-          // 修正后的 chaquopy 配置
+          // 正确的 chaquopy 配置 - 使用 version 属性
           chaquopy {
-              defaultConfig {
-                  python {
-                      version "3.10"
-                  }
-              }
+              version "3.10"
           }
           EOF
           
@@ -140,9 +135,25 @@ jobs:
         run: |
           cd TV
           echo "=== 根目录 build.gradle ==="
-          if [ -f build.gradle ]; then cat build.gradle; else echo "不存在"; fi
+          if [ -f build.gradle ]; then
+            cat build.gradle
+          else
+            echo "不存在"
+          fi
+          
           echo "=== 根目录 settings.gradle ==="
-          if [ -f settings.gradle ]; then cat settings.gradle; else echo "不存在"; fi
+          if [ -f settings.gradle ]; then
+            cat settings.gradle
+          else
+            echo "不存在"
+          fi
+          
+          echo "=== gradle.properties ==="
+          if [ -f gradle.properties ]; then
+            cat gradle.properties
+          else
+            echo "不存在"
+          fi
 
       - name: Create local.properties
         run: |
@@ -161,8 +172,14 @@ jobs:
 
       - name: Find and Upload APK
         run: |
-          find TV -name "*.apk" -type f -exec cp {} ./fongmi_hwedding.apk \;
+          echo "查找编译生成的APK..."
+          find TV -name "*.apk" -type f | while read apk; do
+            echo "找到: $apk"
+            cp "$apk" ./fongmi_hwedding.apk
+          done
+          
           if [ ! -f ./fongmi_hwedding.apk ]; then
+            echo "尝试从标准路径复制..."
             cp TV/app/build/outputs/apk/debug/*.apk ./fongmi_hwedding.apk 2>/dev/null || echo "未找到APK"
           fi
 
