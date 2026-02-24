@@ -87,23 +87,44 @@ jobs:
           }
           EOF
 
-      # 第三步：最小化修改 build.gradle - 只添加必要的配置
-      - name: Minimal fix for build.gradle
+      # 第三步：精确修复 - 在文件头部应用chaquopy插件
+      - name: Precise fix - apply chaquopy plugin
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 1. 确保文件以正确的插件应用开头
-          # 先检查文件内容
-          echo "=== 原始文件开头 ==="
-          head -5 app/build.gradle
+          # 显示原始文件内容
+          echo "=== 原始文件内容 ==="
+          cat app/build.gradle
           
-          # 2. 如果文件没有正确应用Android插件，我们需要修复
-          # 但为了避免破坏原有配置，我们只在文件末尾添加必要的chaquopy配置
+          # 1. 在文件开头应用chaquopy插件（如果尚未应用）
+          if ! grep -q "apply plugin: 'com.chaquo.python'" app/build.gradle; then
+            # 创建临时文件
+            TMP_FILE=$(mktemp)
+            
+            # 写入apply plugin到临时文件
+            echo "apply plugin: \"com.chaquo.python\"" > "$TMP_FILE"
+            echo "" >> "$TMP_FILE"
+            
+            # 将原文件内容追加到临时文件
+            cat app/build.gradle >> "$TMP_FILE"
+            
+            # 用临时文件替换原文件
+            mv "$TMP_FILE" app/build.gradle
+            
+            echo "已在文件头部应用chaquopy插件"
+          else
+            echo "chaquopy插件已应用"
+          fi
           
-          # 3. 添加chaquopy pythonVersion配置（如果不存在）
+          # 2. 检查并添加compileSdk（如果不存在）
+          if ! grep -q "compileSdk" app/build.gradle; then
+            echo "警告: 未找到compileSdk配置，可能需要手动添加"
+          fi
+          
+          # 3. 确保文件末尾有正确的pythonVersion配置（如果不存在）
           if ! grep -q "pythonVersion" app/build.gradle; then
             cat >> app/build.gradle << 'EOF'
 
@@ -112,18 +133,14 @@ jobs:
               pythonVersion "3.10"
           }
           EOF
-            echo "已添加chaquopy配置"
+            echo "已在文件末尾添加pythonVersion配置"
           else
-            echo "chaquopy配置已存在"
+            echo "pythonVersion配置已存在"
           fi
           
-          # 4. 检查并添加compileSdk（如果不存在）- 但不要破坏android块
-          if ! grep -q "compileSdk" app/build.gradle; then
-            echo "警告: 未找到compileSdk，可能需要手动添加"
-          fi
-          
-          echo "=== 修改后的文件末尾 ==="
-          tail -10 app/build.gradle
+          # 显示修改后的文件内容
+          echo "=== 修改后的文件内容 ==="
+          cat app/build.gradle
 
       # 第四步：检查项目根目录的配置文件
       - name: Check root configuration files
@@ -174,12 +191,17 @@ jobs:
             cp TV/app/build/outputs/apk/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
             echo "未找到APK"
           fi
+          
+          # 列出所有可能的输出目录
+          echo "=== 检查输出目录 ==="
+          ls -la TV/app/build/outputs/apk/ || true
+          ls -la TV/app/build/outputs/apk/debug/ || true
 
       # 第八步：上传 APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fongmi-hwedding-minimal
+          name: fongmi-hwedding-final
           path: ./fongmi_hwedding.apk
           if-no-files-found: warn
           retention-days: 30
