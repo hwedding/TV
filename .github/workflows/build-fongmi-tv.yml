@@ -77,14 +77,14 @@ jobs:
           }
           EOF
 
-      - name: Configure build.gradle with correct chaquopy syntax
+      - name: Configure build.gradle with namespace and chaquopy
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 创建新的build.gradle内容，使用正确的 version 语法
+          # 创建新的build.gradle内容
           cat > app/build.gradle << 'EOF'
           plugins {
               id "com.android.application"
@@ -92,6 +92,7 @@ jobs:
           }
 
           android {
+              namespace "com.fongmi.android.tv"
               compileSdk 33
 
               defaultConfig {
@@ -122,7 +123,6 @@ jobs:
               implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
 
-          // 正确的 chaquopy 配置 - 使用 version 属性
           chaquopy {
               version "3.10"
           }
@@ -130,30 +130,6 @@ jobs:
           
           echo ">>> 修正后的 build.gradle 内容:"
           cat app/build.gradle
-
-      - name: Check root config for plugin version
-        run: |
-          cd TV
-          echo "=== 根目录 build.gradle ==="
-          if [ -f build.gradle ]; then
-            cat build.gradle
-          else
-            echo "不存在"
-          fi
-          
-          echo "=== 根目录 settings.gradle ==="
-          if [ -f settings.gradle ]; then
-            cat settings.gradle
-          else
-            echo "不存在"
-          fi
-          
-          echo "=== gradle.properties ==="
-          if [ -f gradle.properties ]; then
-            cat gradle.properties
-          else
-            echo "不存在"
-          fi
 
       - name: Create local.properties
         run: |
@@ -170,23 +146,10 @@ jobs:
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
 
-      - name: Find and Upload APK
-        run: |
-          echo "查找编译生成的APK..."
-          find TV -name "*.apk" -type f | while read apk; do
-            echo "找到: $apk"
-            cp "$apk" ./fongmi_hwedding.apk
-          done
-          
-          if [ ! -f ./fongmi_hwedding.apk ]; then
-            echo "尝试从标准路径复制..."
-            cp TV/app/build/outputs/apk/debug/*.apk ./fongmi_hwedding.apk 2>/dev/null || echo "未找到APK"
-          fi
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fongmi-hwedding-apk
-          path: ./fongmi_hwedding.apk
+          name: fongmi-hwedding-final
+          path: TV/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
           retention-days: 30
