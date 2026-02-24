@@ -1,7 +1,7 @@
 name: Build FongMi TV with hwedding Source
 
 on:
-  workflow_dispatch:
+  workflow_dispatch
 
 jobs:
   build:
@@ -14,7 +14,6 @@ jobs:
           ref: release
           path: TV
 
-      # 第一步：安装Python 3.10
       - name: Install Python 3.10
         run: |
           sudo add-apt-repository ppa:deadsnakes/ppa -y
@@ -30,15 +29,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 第二步：修改 App.java 添加默认配置地址
       - name: Modify App.java to add default config
         run: |
           cd TV
-          
-          # 备份原文件
-          cp app/src/main/java/com/fongmi/android/tv/App.java app/src/main/java/com/fongmi/android/tv/App.java.bak
-          
-          # 写入修改后的内容
           cat > app/src/main/java/com/fongmi/android/tv/App.java << 'EOF'
           package com.fongmi.android.tv;
 
@@ -51,7 +44,6 @@ jobs:
           import com.fongmi.android.tv.utils.UrlUtil;
 
           public class App extends Application {
-
               private static App instance;
 
               public static App get() {
@@ -63,7 +55,6 @@ jobs:
                   super.onCreate();
                   instance = this;
                   
-                  // 设置默认配置地址
                   try {
                       SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
                       String configUrl = sp.getString("config_url", "");
@@ -79,7 +70,6 @@ jobs:
                       e.printStackTrace();
                   }
                   
-                  // 原有的其他初始化代码
                   Notify.init(this);
                   Pref.init(this);
                   UrlUtil.init(this);
@@ -87,134 +77,70 @@ jobs:
           }
           EOF
 
-      # 第三步：精确修复 - 将chaquopy插件添加到plugins块
-      - name: Precise fix - add chaquopy to plugins block
+      - name: Configure build.gradle
         run: |
           cd TV
           
           # 备份原文件
           cp app/build.gradle app/build.gradle.bak
           
-          # 显示原始文件内容前20行
-          echo "=== 原始文件开头 ==="
-          head -20 app/build.gradle
-          
-          # 1. 检查并修改 plugins 块
-          if grep -q "plugins {" app/build.gradle; then
-            echo "找到 plugins 块，正在添加 chaquopy 插件..."
-            
-            # 在 plugins 块内添加 chaquopy（如果不存在）
-            if ! grep -q "com.chaquo.python" app/build.gradle; then
-              # 在 plugins 块的最后一行之前插入
-              sed -i '/plugins {/,/}/ {
-                /}/ i\    id "com.chaquo.python" version "14.0.2"
-              }' app/build.gradle
-              echo "已在 plugins 块中添加 chaquopy 插件"
-            else
-              echo "plugins 块中已包含 chaquopy 插件"
-            fi
-          else
-            echo "未找到 plugins 块，在文件开头创建..."
-            # 创建临时文件，在最开头添加 plugins 块
-            TMP_FILE=$(mktemp)
-            cat > "$TMP_FILE" << 'EOF'
-plugins {
-    id "com.android.application"
-    id "com.chaquo.python" version "14.0.2"
-}
+          # 创建新的build.gradle内容
+          cat > app/build.gradle << 'EOF'
+          plugins {
+              id "com.android.application"
+              id "com.chaquo.python" version "14.0.2"
+          }
 
-EOF
-            cat app/build.gradle >> "$TMP_FILE"
-            mv "$TMP_FILE" app/build.gradle
-            echo "已在文件开头创建 plugins 块"
-          fi
-          
-          # 2. 移除可能存在的 apply plugin 语句（避免冲突）
-          if grep -q "apply plugin:.*chaquo" app/build.gradle; then
-            sed -i '/apply plugin:.*chaquo/d' app/build.gradle
-            echo "已移除旧的 apply plugin 语句"
-          fi
-          
-          # 3. 确保文件末尾有正确的 pythonVersion 配置（如果不存在）
-          if ! grep -q "pythonVersion" app/build.gradle; then
-            cat >> app/build.gradle << 'EOF'
+          android {
+              compileSdk 33
 
-// Python configuration for chaquopy
-chaquopy {
-    pythonVersion "3.10"
-}
-EOF
-            echo "已在文件末尾添加 pythonVersion 配置"
-          else
-            echo "pythonVersion 配置已存在"
-          fi
-          
-          # 显示修改后的文件开头
-          echo "=== 修改后的文件开头 ==="
-          head -20 app/build.gradle
-          echo "=== 修改后的文件末尾 ==="
-          tail -10 app/build.gradle
+              defaultConfig {
+                  applicationId "com.fongmi.android.tv"
+                  minSdk 21
+                  targetSdk 33
+                  versionCode 1
+                  versionName "1.0"
+              }
 
-      # 第四步：检查项目根目录的配置文件
-      - name: Check root configuration files
-        run: |
-          cd TV
-          echo "=== 根目录 build.gradle ==="
-          cat build.gradle || echo "没有根build.gradle"
-          
-          echo "=== 根目录 settings.gradle ==="
-          cat settings.gradle || echo "没有settings.gradle"
-          
-          echo "=== gradle.properties ==="
-          cat gradle.properties || echo "没有gradle.properties"
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+                  }
+              }
+          }
 
-      # 第五步：创建 local.properties
+          dependencies {
+              implementation fileTree(dir: 'libs', include: ['*.jar'])
+          }
+
+          chaquopy {
+              pythonVersion "3.10"
+          }
+          EOF
+          
+          echo "build.gradle 配置完成"
+          cat app/build.gradle
+
       - name: Create local.properties
         run: |
           cd TV
           echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
           echo "python.executable=/usr/bin/python3.10" >> local.properties
 
-      # 第六步：编译 APK
       - name: Build APK
         run: |
           cd TV
           chmod +x gradlew
           ./gradlew clean
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug
         env:
           PYTHON_EXECUTABLE: /usr/bin/python3.10
-          ANDROID_HOME: /usr/local/lib/android/sdk
 
-      # 第七步：查找 APK
-      - name: Find APK
-        run: |
-          echo "查找编译生成的APK..."
-          find TV -name "*.apk" -type f | while read apk; do
-            echo "找到: $apk"
-            ls -la "$apk"
-            cp "$apk" ./fongmi_hwedding.apk
-          done
-          
-          # 如果没找到，尝试所有可能的输出路径
-          if [ ! -f ./fongmi_hwedding.apk ]; then
-            echo "尝试从标准路径复制..."
-            cp TV/app/build/outputs/apk/debug/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
-            cp TV/app/build/outputs/apk/*/debug/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
-            cp TV/app/build/outputs/apk/*.apk ./fongmi_hwedding.apk 2>/dev/null || \
-            echo "未找到APK"
-          fi
-          
-          # 列出所有可能的输出目录
-          echo "=== 检查输出目录 ==="
-          ls -la TV/app/build/outputs/apk/ || true
-          ls -la TV/app/build/outputs/apk/debug/ || true
-
-      # 第八步：上传 APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fongmi-hwedding-final
-          path: ./fongmi_hwedding.apk
+          name: fongmi-hwedding-apk
+          path: TV/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
           retention-days: 30
